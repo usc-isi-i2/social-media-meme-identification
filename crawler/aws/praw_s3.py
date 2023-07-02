@@ -1,35 +1,37 @@
-import os
+import boto3
 import praw
 import pandas as pd
 import requests
-import config
+import os
 from datetime import datetime
 from tqdm import tqdm
+from io import StringIO, BytesIO
 
-reddit = praw.Reddit(
-    client_id=config.client_id,
-    client_secret=config.client_secret,
-    user_agent=config.user_agent
-)
 
-target_datetime = datetime(2015, 1, 1, 00, 00, 00)
+def cache_data(df, post_id_set):
+    post_ids = list(df['post_id'])
+    for _id in post_ids:
+        post_id_set.add(_id)
+    return post_id_set
 
-def store_history(out_file):
-    if os.path.exists(out_file):
-        dataset = pd.read_csv(out_file, index_col=0)
-        post_ids = list(dataset['post_id'])
-        for _id in post_ids:
-            post_id_set.add(_id)
-
-def main(sr_name, out_file):
+def main(sr_name, out_file, post_id_set, target_datetime, reddit):
 
     subreddit = reddit.subreddit(sr_name)
     after = None
     count = 0
+ 
+    s3_resource = boto3.resource('s3', region_name=os.environ['REGION'])
+    s3_client = s3_resource.meta.client
 
-    if os.path.exists(out_file):
-        df = pd.read_csv(out_file, index_col=0)
-    else:
+    df_bucket_name = os.environ['S3_BUCKET_DF']
+    df_file_path = sr_name+'/'+out_file
+
+    try:
+        s3_client.head_object(Bucket=df_bucket_name, Key=df_file_path)
+        s3_obj = s3_resource.Object(df_bucket_name, df_file_path)
+        df = pd.read_csv(StringIO(s3_obj.get()['Body'].read().decode('utf-8')), index_col=0)
+        post_id_set = cache_data(df, post_id_set)
+    except:
         df = pd.DataFrame(columns=["title", "body", "score", "upvotes", "downvotes", "timestamp", \
             "post_url", "author", "author_flair_text", "num_comments", "stickied", "clicked", "locked", "nsfw", "post_id", "image_url", \
             "image_name", "image_location", "distinguished", "edited", "is_original_content", "is_self", "link_flair_template_id", \
@@ -79,6 +81,7 @@ def main(sr_name, out_file):
 
             # check collected data
             if post_id in post_id_set:
+                print("Cache Hit!!")
                 continue
             else:
                 post_id_set.add(post_id)
@@ -105,12 +108,13 @@ def main(sr_name, out_file):
                 response = requests.get(img_url)
                 if response.status_code == 200:
                     img_name = img_url.split("/")[-1]
-                    img_location = config.image_store+sr_name
-                    if not os.path.exists(img_location):
-                        os.mkdir(img_location)
-                    img_location+='/'+img_name
-                    with open(img_location, "wb") as file:
-                        file.write(response.content)
+                    img_bucket_name = os.environ['S3_BUCKET_IMG']
+                    img_location = sr_name+'/'+img_name
+                    try:
+                        s3_client.upload_fileobj(BytesIO(response.content), img_bucket_name, img_location)
+                        print("Upload Successful")
+                    except:
+                        pass
                 else:
                     print("Failed to download the image.")
 
@@ -123,35 +127,34 @@ def main(sr_name, out_file):
                 saved, spoiler, upvote_ratio
             ]
             df.loc[len(df)] = save_list
-            break
 
 
         after = posts.params.get('after')
-        # print(after, type(after))
-        df.to_csv(out_file)
         if not ok:
             break
         if not after:
             break
         count += 1
-        if count >= 50:
+        if count >= 40:
             break
+    
+    csv_buffer = StringIO()
+    df.to_csv(csv_buffer)
+    s3_resource.Object(df_bucket_name, df_file_path).put(Body=csv_buffer.getvalue())
 
 
-if __name__ == "__main__":
+
+def lambda_handler(event, context):
     
     subreddits = ["memes"]
-    # subreddits = ["me_irl"]
-    # subreddits = ["dankmeme"]
-    # subreddits = ["dank_meme"]
-    # subreddits = ["MemeEconomy"]
-    # subreddits = ["funny"]
-    # subreddits = ["HistoryMemes"]
-    # subreddits = ["CoronavirusMemes"]
-    # subreddits = ["TheLeftCantMeme"]
-    # subreddits = ["TheRightCantMeme"]
+    post_id_set = set()
+    target_datetime = datetime(2015, 1, 1, 00, 00, 00)
+
+    reddit = praw.Reddit(
+        client_id=os.environ['PRAW_CLIENT_ID'],
+        client_secret=os.environ['PRAW_CLIENT_SECRET'],
+        user_agent=os.environ['PRAW_USER_AGENT']
+    )
     for sr in subreddits:
         out_file = "dataset_"+sr+".csv"
-        post_id_set = set()
-        store_history(out_file)
-        main(sr, out_file)
+        main(sr, out_file, post_id_set, target_datetime, reddit)

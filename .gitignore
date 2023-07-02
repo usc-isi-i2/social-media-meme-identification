@@ -5,3 +5,11 @@ files/
 __pycache__/
 config.py
 *.db
+*.zip
+cred.py
+dependencies/
+dependencies1/
+dependencies2/
+dependencies3/
+dependencies4/
+dependencies5/
