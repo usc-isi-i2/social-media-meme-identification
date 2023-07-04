@@ -123,7 +123,6 @@ def main(sr_name, out_file):
                 saved, spoiler, upvote_ratio
             ]
             df.loc[len(df)] = save_list
-            break
 
 
         after = posts.params.get('after')
@@ -140,7 +139,7 @@ def main(sr_name, out_file):
 
 if __name__ == "__main__":
     
-    subreddits = ["memes"]
+    # subreddits = ["memes"]
     # subreddits = ["me_irl"]
     # subreddits = ["dankmeme"]
     # subreddits = ["dank_meme"]
@@ -150,6 +149,11 @@ if __name__ == "__main__":
     # subreddits = ["CoronavirusMemes"]
     # subreddits = ["TheLeftCantMeme"]
     # subreddits = ["TheRightCantMeme"]
+    # subreddits = ["wholesomememes"]
+    # subreddits = ["meme"]
+    # subreddits = ["ProgrammerHumor"]
+    # subreddits = ["PoliticalMemes"]
+    subreddits = ["PrequelMemes"]
     for sr in subreddits:
         out_file = "dataset_"+sr+".csv"
         post_id_set = set()
